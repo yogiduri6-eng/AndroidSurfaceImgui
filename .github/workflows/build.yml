@@ -1,0 +1,46 @@
+name: Build AndroidSurfaceImgui
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive   # penting! imgui & zstd ada di submodule
+
+      - name: Setup NDK r26d
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+          add-to-path: true
+
+      - name: Configure CMake
+        run: |
+          cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_PLATFORM=android-23 \
+            -DANDROID_ABI=${{ matrix.abi }} \
+            -S . -B build -G Ninja
+
+      - name: Build
+        run: cmake --build build --config Release -j$(nproc)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: output-${{ matrix.abi }}
+          path: |
+            build/libs/${{ matrix.abi }}/
+            build/tests/${{ matrix.abi }}/
