@@ -17,14 +17,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: recursive # penting! imgui & zstd ada di submodule
 
       - name: Setup NDK r26d
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26d
           add-to-path: true
-- name: Configure CMake
+
+      - name: Configure CMake
         run: |
           cmake \
             -DCMAKE_BUILD_TYPE=Release \
@@ -34,7 +35,6 @@ jobs:
             -DANDROID_SURFACE_IMGUI_BUILD_STATIC=OFF \
             -DANDROID_SURFACE_IMGUI_BUILD_SHARED=OFF \
             -S . -B build -G Ninja
-            
 
       - name: Build
         run: cmake --build build --config Release -j$(nproc)
