@@ -63,7 +63,7 @@ if(ANDROID_SURFACE_IMGUI_BUILD_TESTING)
     set_target_properties(test-ui PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "tests/${ANDROID_ABI}"
     )
-    add_executable(test-ui-patch src/test-ui/main.cc ${AIMGUI_COMMON_SOURCES} ${AIMGUI_IMGUI_SOURCES} ${AIMGUI_IMGUI_BACKENDS_SOURCES})
+    add_executable(test-ui-patch src/test-ui/main-patch.cc ${AIMGUI_COMMON_SOURCES} ${AIMGUI_IMGUI_SOURCES} ${AIMGUI_IMGUI_BACKENDS_SOURCES})
     target_link_libraries(test-ui-patch ${liblog} EGL GLESv3 android libzstd_static)
     set_target_properties(test-ui-patch PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "tests/${ANDROID_ABI}"
