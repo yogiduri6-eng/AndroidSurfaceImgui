@@ -61,8 +61,10 @@ struct GameInfo {
 // ─────────────────────────────────────────────
 static GameInfo     g_info;
 static std::mutex   g_mutex;
-static std::atomic<bool> g_running { true };
-static std::atomic<bool> g_refreshing { false };
+static std::atomic<bool> g_running      { true  };
+static std::atomic<bool> g_refreshing   { false };
+static std::atomic<bool> g_driverInited { false };
+static std::atomic<bool> g_procHidden   { false };
 
 // ─────────────────────────────────────────────
 //  Helper — timestamp string
@@ -91,24 +93,21 @@ static std::string ToHex(uintptr_t v) {
 
 // ─────────────────────────────────────────────
 //  Background thread — refresh game info
+//  Hanya baca data game. Driver init & hideProc
+//  dilakukan SEKALI di main(), bukan di sini.
 // ─────────────────────────────────────────────
 static void RefreshInfo() {
+    if (!g_driverInited.load()) return;
     g_refreshing = true;
     GameInfo tmp;
 
-    // --- Driver init ---
-    Core.start();
-    tmp.procHidden = (Core.hideProc() == 0);
-
-    // Detect driver type via build macro
-#if defined(DITPRO_KPM)
-    tmp.driverType = "DITPRO_KPM (syscall)";
-#elif defined(DITS_KO)
-    tmp.driverType = "DITS_KO (ioctl)";
-#else
-    tmp.driverType = "Auto-detect";
-#endif
-    tmp.driverOk = true;
+    // Pertahankan status driver dari sesi sebelumnya
+    {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        tmp.driverOk   = g_info.driverOk;
+        tmp.driverType = g_info.driverType;
+        tmp.procHidden = g_procHidden.load();
+    }
 
     // --- PID ---
     auto pidOpt = Core.get_pid("com.aldagames.zombieshooter");
@@ -193,6 +192,27 @@ int main()
         LogInfo("[-] ImGui initialization failed");
         return 0;
     }
+
+    // ── Driver init — SEKALI saja di sini ───────────────
+    Core.start();
+    {
+        std::lock_guard<std::mutex> lk(g_mutex);
+#if defined(DITPRO_KPM)
+        g_info.driverType = "DITPRO_KPM (syscall)";
+#elif defined(DITS_KO)
+        g_info.driverType = "DITS_KO (ioctl)";
+#else
+        g_info.driverType = "Auto-detect";
+#endif
+        g_info.driverOk = true;
+
+        // hideProc dipanggil SEKALI — kalau dipanggil ulang tiap refresh
+        // bisa corrupt state KPM dan menyebabkan reboot saat exit
+        bool hidden = (Core.hideProc() == 0);
+        g_procHidden.store(hidden);
+        g_info.procHidden = hidden;
+    }
+    g_driverInited.store(true);
 
     bool state           = true;
     bool showMaps        = false;
@@ -358,11 +378,27 @@ int main()
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
-    // Cleanup
+    // ── Cleanup ──────────────────────────────────────────
     g_running = false;
+
+    // Tunggu RefreshInfo selesai dulu.
+    // Kalau langsung UnMem saat thread masih akses Core → kernel panic / reboot.
+    while (g_refreshing.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
     if (inputThread.joinable()) inputThread.join();
+
+    // Order WAJIB: unProc() DULU, baru UnMem().
+    // Kalau UnMem() dipanggil dulu → driver uninstall → unProc() gagal
+    // → process tetap hidden → kernel tidak bisa track process → reboot.
+    if (g_procHidden.load()) {
+        Core.unProc();
+        g_procHidden.store(false);
+    }
     Core.UnMem();
-    Core.unProc();
+    // Destructor ~driver() akan memanggil UnMem()+unProc() lagi,
+    // tapi karena driver sudah uninstall, call tersebut return -1 (tidak bahaya).
 
     return 0;
 }
